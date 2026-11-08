@@ -1,6 +1,8 @@
-/target/
-/nbproject/private/
+﻿target/
+build/
+dist/
+nbproject/private/
 *.class
 *.log
-.idea/
-.vscode/
+*.ser
+.env
