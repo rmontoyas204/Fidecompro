@@ -1,0 +1,11 @@
+FIDECOMPRO - NETBEANS 31 - REPARACION DE DATOS
+
+1. Extraer ZIP y abrir la carpeta del proyecto que contiene pom.xml en NetBeans 31.
+2. Clean and Build y luego Run.
+3. Si aparece error de datos, elegir Respaldar y crear base nueva SOLO si no necesita recuperar la informacion anterior inmediatamente.
+4. El archivo anterior se conserva con nombre datos_respaldo_FECHA.ser.
+5. Ubicacion Windows: C:\Users\TU_USUARIO\.fidecompro\datos.ser
+6. Acceso de prueba para una base nueva: admin / Admin123!
+7. Si los datos anteriores son importantes, elegir Salir sin modificar y enviar el mensaje de error para intentar recuperarlos.
+
+No usa MySQL: guarda mediante serializacion Java.
