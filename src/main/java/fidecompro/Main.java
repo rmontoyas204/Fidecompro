@@ -330,7 +330,173 @@ public class Main {
         return contenedor(tabla, acciones);
     }
 
-    static JPanel facturacion(){JPanel panel=new JPanel(new BorderLayout(10,10));panel.setBorder(BorderFactory.createEmptyBorder(12,12,12,12));JPanel superior=new JPanel(new FlowLayout(FlowLayout.LEFT));JComboBox<Cliente> clientes=new JComboBox<>();JComboBox<Producto> productos=new JComboBox<>();JSpinner cantidad=new JSpinner(new SpinnerNumberModel(1,1,100000,1));superior.add(new JLabel("Cliente:"));superior.add(clientes);superior.add(new JLabel("Producto:"));superior.add(productos);superior.add(new JLabel("Cantidad:"));superior.add(cantidad);panel.add(superior,BorderLayout.NORTH);DefaultTableModel m=tablaModelo("Código","Producto","Cantidad","Precio","Subtotal");JTable t=new JTable(m);panel.add(new JScrollPane(t),BorderLayout.CENTER);List<Linea> carrito=new ArrayList<>();JLabel total=new JLabel("Subtotal ₡0 | IVA ₡0 | Total ₡0");Runnable actualizar=()->{m.setRowCount(0);BigDecimal sub=BigDecimal.ZERO;for(Linea l:carrito){m.addRow(new Object[]{l.codigo,l.nombre,l.cantidad,l.precio,l.subtotal()});sub=sub.add(l.subtotal());}BigDecimal iva=sub.multiply(IVA).setScale(2,RoundingMode.HALF_UP);total.setText("Subtotal ₡"+sub+" | IVA (13%) ₡"+iva+" | Total ₡"+sub.add(iva));};Runnable cargar=()->{clientes.removeAllItems();productos.removeAllItems();for(Cliente c:datos.clientes)clientes.addItem(c);for(Producto p:datos.productos)productos.addItem(p);};pestañasPlaceholder(panel,cargar);JPanel inferior=new JPanel(new FlowLayout(FlowLayout.LEFT));inferior.add(boton("Actualizar catálogos",cargar));inferior.add(boton("Agregar línea",()->{Producto p=(Producto)productos.getSelectedItem();if(p==null)throw new IllegalArgumentException("Registre productos primero.");int n=(int)cantidad.getValue();int ya=carrito.stream().filter(l->l.codigo.equals(p.codigo)).mapToInt(l->l.cantidad).sum();if(n>p.existencias-ya)throw new IllegalArgumentException("Existencias insuficientes.");carrito.add(new Linea(p,n));actualizar.run();}));inferior.add(boton("Quitar línea",()->{int r=t.getSelectedRow();if(r>=0){carrito.remove(t.convertRowIndexToModel(r));actualizar.run();}}));inferior.add(boton("Confirmar factura",()->{Cliente c=(Cliente)clientes.getSelectedItem();if(c==null||carrito.isEmpty())throw new IllegalArgumentException("Seleccione cliente y agregue productos.");synchronized(datos){Map<String,Integer> requeridos=new HashMap<>();for(Linea l:carrito)requeridos.merge(l.codigo,l.cantidad,Integer::sum);for(Map.Entry<String,Integer> e:requeridos.entrySet()){Producto p=datos.productos.stream().filter(x->x.codigo.equals(e.getKey())).findFirst().orElseThrow(()->new IllegalArgumentException("Producto inexistente."));if(p.existencias<e.getValue())throw new IllegalArgumentException("Stock insuficiente para "+p.nombre);}for(Producto p:datos.productos)p.existencias-=requeridos.getOrDefault(p.codigo,0);Factura f=new Factura(datos.facturas.size()+1,c.toString(),sesion.usuario,carrito);datos.facturas.add(f);guardar();carrito.clear();actualizar.run();cargar.run();JTextArea a=new JTextArea(f.comprobante(),20,55);a.setEditable(false);JOptionPane.showMessageDialog(ventana,new JScrollPane(a),"Factura confirmada",JOptionPane.INFORMATION_MESSAGE);exportar(f);}}));inferior.add(total);panel.add(inferior,BorderLayout.SOUTH);return panel;}
+    /** Calcula el subtotal del carrito sin modificar los datos persistentes. */
+    static BigDecimal subtotalCarrito(List<Linea> carrito) {
+        BigDecimal subtotal = BigDecimal.ZERO;
+        for (Linea linea : carrito) subtotal = subtotal.add(linea.subtotal());
+        return subtotal;
+    }
+
+    /** Cantidad ya solicitada de un producto, sin desbordamiento silencioso. */
+    static int cantidadEnCarrito(List<Linea> carrito, String codigo) {
+        int acumulado = 0;
+        for (Linea linea : carrito) {
+            if (linea.codigo.equals(codigo)) {
+                try {
+                    acumulado = Math.addExact(acumulado, linea.cantidad);
+                } catch (ArithmeticException ex) {
+                    throw new IllegalArgumentException("La cantidad acumulada supera el máximo permitido.");
+                }
+            }
+        }
+        return acumulado;
+    }
+
+    static JPanel facturacion() {
+        JPanel panel = new JPanel(new BorderLayout(10, 10));
+        panel.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
+        JPanel superior = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JComboBox<Cliente> clientes = new JComboBox<>();
+        JComboBox<Producto> productos = new JComboBox<>();
+        JSpinner cantidad = new JSpinner(new SpinnerNumberModel(1, 1, 100000, 1));
+        superior.add(new JLabel("Cliente:"));
+        superior.add(clientes);
+        superior.add(new JLabel("Producto:"));
+        superior.add(productos);
+        superior.add(new JLabel("Cantidad:"));
+        superior.add(cantidad);
+        panel.add(superior, BorderLayout.NORTH);
+
+        DefaultTableModel modelo = tablaModelo("Código", "Producto", "Cantidad", "Precio", "Subtotal");
+        JTable tabla = new JTable(modelo);
+        panel.add(new JScrollPane(tabla), BorderLayout.CENTER);
+        List<Linea> carrito = new ArrayList<>();
+        JLabel total = new JLabel("Subtotal ₡0.00 | IVA (13%) ₡0.00 | Total ₡0.00");
+
+        Runnable actualizar = () -> {
+            modelo.setRowCount(0);
+            for (Linea linea : carrito) {
+                modelo.addRow(new Object[]{linea.codigo, linea.nombre, linea.cantidad,
+                    linea.precio, linea.subtotal()});
+            }
+            BigDecimal subtotal = subtotalCarrito(carrito).setScale(2, RoundingMode.HALF_UP);
+            BigDecimal impuesto = subtotal.multiply(IVA).setScale(2, RoundingMode.HALF_UP);
+            total.setText("Subtotal ₡" + subtotal + " | IVA (13%) ₡" + impuesto
+                + " | Total ₡" + subtotal.add(impuesto));
+        };
+
+        Runnable cargar = () -> {
+            Cliente clienteAnterior = (Cliente) clientes.getSelectedItem();
+            Producto productoAnterior = (Producto) productos.getSelectedItem();
+            clientes.removeAllItems();
+            productos.removeAllItems();
+            for (Cliente cliente : datos.clientes) clientes.addItem(cliente);
+            for (Producto producto : datos.productos) productos.addItem(producto);
+            if (clienteAnterior != null) clientes.setSelectedItem(clienteAnterior);
+            if (productoAnterior != null) productos.setSelectedItem(productoAnterior);
+        };
+        pestañasPlaceholder(panel, cargar);
+        JPanel inferior = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        inferior.add(boton("Actualizar catálogos", cargar));
+
+        inferior.add(boton("Agregar línea", () -> {
+            Producto producto = (Producto) productos.getSelectedItem();
+            if (producto == null) throw new IllegalArgumentException("Registre un producto primero.");
+            int unidades;
+            try {
+                cantidad.commitEdit();
+                unidades = ((Number) cantidad.getValue()).intValue();
+            } catch (java.text.ParseException | ClassCastException ex) {
+                throw new IllegalArgumentException("Ingrese una cantidad entera válida.");
+            }
+            if (unidades <= 0 || unidades > 100000) {
+                throw new IllegalArgumentException("La cantidad debe estar entre 1 y 100000.");
+            }
+            if (producto.existencias <= 0) {
+                throw new IllegalArgumentException("El producto está agotado: " + producto.nombre);
+            }
+            int solicitadas = cantidadEnCarrito(carrito, producto.codigo);
+            if (unidades > producto.existencias - solicitadas) {
+                throw new IllegalArgumentException("Existencias insuficientes para " + producto.nombre
+                    + ". Disponibles para agregar: " + Math.max(0, producto.existencias - solicitadas));
+            }
+            // Consolidar el mismo código en una sola línea con el precio actual del producto.
+            for (int i = 0; i < carrito.size(); i++) {
+                Linea anterior = carrito.get(i);
+                if (anterior.codigo.equals(producto.codigo)) {
+                    // Linea no expone setters: se reemplaza con una nueva instancia.
+                    Linea combinada = new Linea(producto, Math.addExact(anterior.cantidad, unidades));
+                    carrito.set(i, combinada);
+                    actualizar.run();
+                    return;
+                }
+            }
+            carrito.add(new Linea(producto, unidades));
+            actualizar.run();
+        }));
+
+        inferior.add(boton("Quitar línea", () -> {
+            int fila = tabla.getSelectedRow();
+            if (fila < 0) throw new IllegalArgumentException("Seleccione una línea para quitar.");
+            carrito.remove(tabla.convertRowIndexToModel(fila));
+            actualizar.run();
+        }));
+
+        inferior.add(boton("Confirmar factura", () -> {
+            Cliente cliente = (Cliente) clientes.getSelectedItem();
+            if (cliente == null) throw new IllegalArgumentException("Seleccione un cliente.");
+            if (carrito.isEmpty()) throw new IllegalArgumentException("Agregue al menos un producto.");
+            synchronized (datos) {
+                Map<String, Integer> requeridos = new HashMap<>();
+                for (Linea linea : carrito) {
+                    if (linea.cantidad <= 0) throw new IllegalArgumentException("Cantidad inválida en el carrito.");
+                    try {
+                        requeridos.merge(linea.codigo, linea.cantidad, Math::addExact);
+                    } catch (ArithmeticException ex) {
+                        throw new IllegalArgumentException("La cantidad acumulada supera el máximo permitido.");
+                    }
+                }
+                for (Map.Entry<String, Integer> entrada : requeridos.entrySet()) {
+                    Producto productoActual = datos.productos.stream()
+                        .filter(p -> p.codigo.equals(entrada.getKey())).findFirst()
+                        .orElseThrow(() -> new IllegalArgumentException("Un producto del carrito ya no existe."));
+                    if (productoActual.existencias < entrada.getValue()) {
+                        throw new IllegalArgumentException("Stock insuficiente para " + productoActual.nombre
+                            + ". Disponible: " + productoActual.existencias);
+                    }
+                }
+                BigDecimal subtotal = subtotalCarrito(carrito).setScale(2, RoundingMode.HALF_UP);
+                BigDecimal impuesto = subtotal.multiply(IVA).setScale(2, RoundingMode.HALF_UP);
+                BigDecimal totalFactura = subtotal.add(impuesto);
+                String resumen = "Cliente: " + cliente + "\nLíneas: " + carrito.size()
+                    + "\nSubtotal: ₡" + subtotal + "\nIVA (13%): ₡" + impuesto
+                    + "\nTOTAL: ₡" + totalFactura + "\n\n¿Desea registrar la factura y descontar el inventario?";
+                int respuesta = JOptionPane.showConfirmDialog(ventana, resumen,
+                    "Confirmar venta", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+                if (respuesta != JOptionPane.YES_OPTION) return;
+
+                for (Producto producto : datos.productos) {
+                    producto.existencias -= requeridos.getOrDefault(producto.codigo, 0);
+                }
+                Factura factura = new Factura(datos.facturas.size() + 1,
+                    cliente.toString(), sesion.usuario, new ArrayList<>(carrito));
+                datos.facturas.add(factura);
+                guardar();
+                carrito.clear();
+                actualizar.run();
+                cargar.run();
+                JTextArea comprobante = new JTextArea(factura.comprobante(), 20, 55);
+                comprobante.setEditable(false);
+                comprobante.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+                JOptionPane.showMessageDialog(ventana, new JScrollPane(comprobante),
+                    "Factura confirmada", JOptionPane.INFORMATION_MESSAGE);
+                exportar(factura);
+            }
+        }));
+        inferior.add(total);
+        panel.add(inferior, BorderLayout.SOUTH);
+        return panel;
+    }
     static void pestañasPlaceholder(JPanel panel,Runnable r){panel.addHierarchyListener(e->{if(panel.isShowing())r.run();});}
     static void exportar(Factura f){JFileChooser ch=new JFileChooser();ch.setSelectedFile(new File("Factura_"+f.numero+".txt"));if(ch.showSaveDialog(ventana)==JFileChooser.APPROVE_OPTION)try{Files.writeString(ch.getSelectedFile().toPath(),f.comprobante());JOptionPane.showMessageDialog(ventana,"Comprobante guardado.");}catch(IOException ex){error("No se pudo exportar: "+ex.getMessage());}}
     static JPanel historial(){DefaultTableModel m=tablaModelo("Número","Fecha","Cliente","Usuario","Total ₡");JTable t=new JTable(m);Runnable refrescar=()->{m.setRowCount(0);for(Factura f:datos.facturas)m.addRow(new Object[]{f.numero,f.fecha,f.cliente,f.usuario,f.total()});};JPanel a=new JPanel();a.add(boton("Actualizar",refrescar));a.add(boton("Ver comprobante",()->{int r=t.getSelectedRow();if(r<0)throw new IllegalArgumentException("Seleccione una factura.");Factura f=datos.facturas.get(t.convertRowIndexToModel(r));JTextArea area=new JTextArea(f.comprobante(),22,55);area.setEditable(false);JOptionPane.showMessageDialog(ventana,new JScrollPane(area),"Factura "+f.numero,JOptionPane.INFORMATION_MESSAGE);}));a.add(boton("Exportar seleccionado",()->{int r=t.getSelectedRow();if(r<0)throw new IllegalArgumentException("Seleccione una factura.");exportar(datos.facturas.get(t.convertRowIndexToModel(r)));}));a.add(boton("Buscar",()->{String s=JOptionPane.showInputDialog(ventana,"Número, fecha o cliente:");if(s!=null)for(int r=0;r<t.getRowCount();r++)if((t.getValueAt(r,0)+" "+t.getValueAt(r,1)+" "+t.getValueAt(r,2)).toLowerCase().contains(s.toLowerCase())){t.setRowSelectionInterval(r,r);return;}error("Sin resultados.");}));refrescar.run();return contenedor(t,a);}
