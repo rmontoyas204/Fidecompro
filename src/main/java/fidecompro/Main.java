@@ -192,7 +192,144 @@ public class Main {
         return contenedor(tabla, acciones);
     }
 
-    static JPanel productos(){DefaultTableModel m=tablaModelo("Código","Nombre","Descripción","Categoría","Precio ₡","Existencias","Mínimo","Alerta");JTable t=new JTable(m);Runnable refrescar=()->{m.setRowCount(0);for(Producto x:datos.productos)m.addRow(new Object[]{x.codigo,x.nombre,x.descripcion,x.categoria,x.precio,x.existencias,x.minimo,x.existencias<=x.minimo?"REABASTECER":"OK"});};refrescar.run();JPanel acciones=new JPanel();if(sesion.administra()){acciones.add(boton("Registrar producto",()->{JPanel p=formulario();JTextField cod=campo(p,"Código"),nom=campo(p,"Nombre"),des=campo(p,"Descripción"),cat=campo(p,"Categoría"),pre=campo(p,"Precio"),sto=campo(p,"Existencias iniciales"),min=campo(p,"Stock mínimo");if(JOptionPane.showConfirmDialog(ventana,p,"Nuevo producto",JOptionPane.OK_CANCEL_OPTION)==0){String c=requerido(cod.getText());if(datos.productos.stream().anyMatch(x->x.codigo.equalsIgnoreCase(c)))throw new IllegalArgumentException("Código duplicado.");BigDecimal precio=new BigDecimal(requerido(pre.getText()));int e=Integer.parseInt(requerido(sto.getText())),mi=Integer.parseInt(requerido(min.getText()));if(precio.signum()<0||e<0||mi<0)throw new IllegalArgumentException("Precio y cantidades no pueden ser negativos.");datos.productos.add(new Producto(c,requerido(nom.getText()),des.getText(),requerido(cat.getText()),precio,e,mi));guardar();refrescar.run();}}));acciones.add(boton("Entrada de inventario",()->{int r=t.getSelectedRow();if(r<0)throw new IllegalArgumentException("Seleccione un producto.");Producto x=datos.productos.get(t.convertRowIndexToModel(r));String s=JOptionPane.showInputDialog(ventana,"Unidades para agregar a "+x.nombre);if(s!=null){int n=Integer.parseInt(s);if(n<=0)throw new IllegalArgumentException("La cantidad debe ser positiva.");x.existencias=Math.addExact(x.existencias,n);guardar();refrescar.run();}}));acciones.add(boton("Editar producto",()->{int r=t.getSelectedRow();if(r<0)throw new IllegalArgumentException("Seleccione un producto.");Producto x=datos.productos.get(t.convertRowIndexToModel(r));JPanel p=formulario();JTextField n=campo(p,"Nombre"),d=campo(p,"Descripción"),c=campo(p,"Categoría"),pr=campo(p,"Precio"),mi=campo(p,"Mínimo");n.setText(x.nombre);d.setText(x.descripcion);c.setText(x.categoria);pr.setText(x.precio.toString());mi.setText(""+x.minimo);if(JOptionPane.showConfirmDialog(ventana,p,"Editar producto",JOptionPane.OK_CANCEL_OPTION)==0){BigDecimal precio=new BigDecimal(pr.getText());int minimo=Integer.parseInt(mi.getText());if(precio.signum()<0||minimo<0)throw new IllegalArgumentException("Valores inválidos.");x.nombre=requerido(n.getText());x.descripcion=d.getText();x.categoria=requerido(c.getText());x.precio=precio;x.minimo=minimo;guardar();refrescar.run();}}));}else acciones.add(new JLabel("Consulta de inventario (solo administración puede modificar)."));return contenedor(t,acciones);}
+    /** Valida precios monetarios sin aceptar valores negativos ni formatos inválidos. */
+    static BigDecimal validarPrecio(String texto) {
+        String valor = requerido(texto);
+        try {
+            BigDecimal precio = new BigDecimal(valor);
+            if (precio.signum() < 0 || precio.scale() > 2) {
+                throw new IllegalArgumentException("El precio debe ser positivo o cero y tener máximo 2 decimales.");
+            }
+            return precio;
+        } catch (NumberFormatException ex) {
+            throw new IllegalArgumentException("Ingrese un precio numérico válido (ejemplo: 1500.50).");
+        }
+    }
+
+    /** Valida números enteros no negativos para existencias y stock mínimo. */
+    static int validarCantidad(String texto, String campo) {
+        String valor = requerido(texto);
+        try {
+            int cantidad = Integer.parseInt(valor);
+            if (cantidad < 0) {
+                throw new IllegalArgumentException(campo + " no puede ser negativo.");
+            }
+            return cantidad;
+        } catch (NumberFormatException ex) {
+            throw new IllegalArgumentException(campo + " debe ser un número entero válido.");
+        }
+    }
+
+    /** Estado del inventario, priorizando el agotamiento sobre el mínimo. */
+    static String estadoInventario(Producto producto) {
+        if (producto.existencias == 0) return "AGOTADO";
+        if (producto.existencias <= producto.minimo) return "REABASTECER";
+        return "OK";
+    }
+
+    static JPanel productos() {
+        DefaultTableModel modelo = tablaModelo("Código", "Nombre", "Descripción", "Categoría",
+            "Precio ₡", "Existencias", "Mínimo", "Alerta");
+        JTable tabla = new JTable(modelo);
+        Runnable refrescar = () -> {
+            modelo.setRowCount(0);
+            for (Producto producto : datos.productos) {
+                modelo.addRow(new Object[]{producto.codigo, producto.nombre, producto.descripcion,
+                    producto.categoria, producto.precio, producto.existencias, producto.minimo,
+                    estadoInventario(producto)});
+            }
+        };
+        refrescar.run();
+        JPanel acciones = new JPanel();
+
+        if (sesion.administra()) {
+            acciones.add(boton("Registrar producto", () -> {
+                JPanel panel = formulario();
+                JTextField codigo = campo(panel, "Código");
+                JTextField nombre = campo(panel, "Nombre");
+                JTextField descripcion = campo(panel, "Descripción");
+                JTextField categoria = campo(panel, "Categoría");
+                JTextField precio = campo(panel, "Precio");
+                JTextField existencias = campo(panel, "Existencias iniciales");
+                JTextField minimo = campo(panel, "Stock mínimo");
+                if (JOptionPane.showConfirmDialog(ventana, panel, "Nuevo producto",
+                        JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) {
+                    String codigoValidado = requerido(codigo.getText());
+                    if (datos.productos.stream().anyMatch(p -> p.codigo.equalsIgnoreCase(codigoValidado))) {
+                        throw new IllegalArgumentException("Código duplicado.");
+                    }
+                    String nombreValidado = requerido(nombre.getText());
+                    String categoriaValidada = requerido(categoria.getText());
+                    BigDecimal precioValidado = validarPrecio(precio.getText());
+                    int existenciasValidadas = validarCantidad(existencias.getText(), "Existencias iniciales");
+                    int minimoValidado = validarCantidad(minimo.getText(), "Stock mínimo");
+                    datos.productos.add(new Producto(codigoValidado, nombreValidado,
+                        descripcion.getText().trim(), categoriaValidada, precioValidado,
+                        existenciasValidadas, minimoValidado));
+                    guardar();
+                    refrescar.run();
+                }
+            }));
+
+            acciones.add(boton("Entrada de inventario", () -> {
+                int fila = tabla.getSelectedRow();
+                if (fila < 0) throw new IllegalArgumentException("Seleccione un producto.");
+                Producto producto = datos.productos.get(tabla.convertRowIndexToModel(fila));
+                String entrada = JOptionPane.showInputDialog(ventana,
+                    "Unidades para agregar a " + producto.nombre);
+                if (entrada != null) {
+                    int cantidad = validarCantidad(entrada, "Cantidad de entrada");
+                    if (cantidad == 0) {
+                        throw new IllegalArgumentException("La cantidad de entrada debe ser mayor que cero.");
+                    }
+                    try {
+                        int nuevasExistencias = Math.addExact(producto.existencias, cantidad);
+                        producto.existencias = nuevasExistencias;
+                    } catch (ArithmeticException ex) {
+                        throw new IllegalArgumentException("La entrada supera el máximo de existencias permitido.");
+                    }
+                    guardar();
+                    refrescar.run();
+                }
+            }));
+
+            acciones.add(boton("Editar producto", () -> {
+                int fila = tabla.getSelectedRow();
+                if (fila < 0) throw new IllegalArgumentException("Seleccione un producto.");
+                Producto producto = datos.productos.get(tabla.convertRowIndexToModel(fila));
+                JPanel panel = formulario();
+                JTextField nombre = campo(panel, "Nombre");
+                JTextField descripcion = campo(panel, "Descripción");
+                JTextField categoria = campo(panel, "Categoría");
+                JTextField precio = campo(panel, "Precio");
+                JTextField minimo = campo(panel, "Mínimo");
+                nombre.setText(producto.nombre);
+                descripcion.setText(producto.descripcion);
+                categoria.setText(producto.categoria);
+                precio.setText(producto.precio.toString());
+                minimo.setText(String.valueOf(producto.minimo));
+                if (JOptionPane.showConfirmDialog(ventana, panel, "Editar producto",
+                        JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) {
+                    String nombreValidado = requerido(nombre.getText());
+                    String categoriaValidada = requerido(categoria.getText());
+                    BigDecimal precioValidado = validarPrecio(precio.getText());
+                    int minimoValidado = validarCantidad(minimo.getText(), "Stock mínimo");
+                    // No modificar el producto hasta validar todos los campos.
+                    producto.nombre = nombreValidado;
+                    producto.descripcion = descripcion.getText().trim();
+                    producto.categoria = categoriaValidada;
+                    producto.precio = precioValidado;
+                    producto.minimo = minimoValidado;
+                    guardar();
+                    refrescar.run();
+                }
+            }));
+        } else {
+            acciones.add(new JLabel("Consulta de inventario (solo administración puede modificar)."));
+        }
+        return contenedor(tabla, acciones);
+    }
+
     static JPanel facturacion(){JPanel panel=new JPanel(new BorderLayout(10,10));panel.setBorder(BorderFactory.createEmptyBorder(12,12,12,12));JPanel superior=new JPanel(new FlowLayout(FlowLayout.LEFT));JComboBox<Cliente> clientes=new JComboBox<>();JComboBox<Producto> productos=new JComboBox<>();JSpinner cantidad=new JSpinner(new SpinnerNumberModel(1,1,100000,1));superior.add(new JLabel("Cliente:"));superior.add(clientes);superior.add(new JLabel("Producto:"));superior.add(productos);superior.add(new JLabel("Cantidad:"));superior.add(cantidad);panel.add(superior,BorderLayout.NORTH);DefaultTableModel m=tablaModelo("Código","Producto","Cantidad","Precio","Subtotal");JTable t=new JTable(m);panel.add(new JScrollPane(t),BorderLayout.CENTER);List<Linea> carrito=new ArrayList<>();JLabel total=new JLabel("Subtotal ₡0 | IVA ₡0 | Total ₡0");Runnable actualizar=()->{m.setRowCount(0);BigDecimal sub=BigDecimal.ZERO;for(Linea l:carrito){m.addRow(new Object[]{l.codigo,l.nombre,l.cantidad,l.precio,l.subtotal()});sub=sub.add(l.subtotal());}BigDecimal iva=sub.multiply(IVA).setScale(2,RoundingMode.HALF_UP);total.setText("Subtotal ₡"+sub+" | IVA (13%) ₡"+iva+" | Total ₡"+sub.add(iva));};Runnable cargar=()->{clientes.removeAllItems();productos.removeAllItems();for(Cliente c:datos.clientes)clientes.addItem(c);for(Producto p:datos.productos)productos.addItem(p);};pestañasPlaceholder(panel,cargar);JPanel inferior=new JPanel(new FlowLayout(FlowLayout.LEFT));inferior.add(boton("Actualizar catálogos",cargar));inferior.add(boton("Agregar línea",()->{Producto p=(Producto)productos.getSelectedItem();if(p==null)throw new IllegalArgumentException("Registre productos primero.");int n=(int)cantidad.getValue();int ya=carrito.stream().filter(l->l.codigo.equals(p.codigo)).mapToInt(l->l.cantidad).sum();if(n>p.existencias-ya)throw new IllegalArgumentException("Existencias insuficientes.");carrito.add(new Linea(p,n));actualizar.run();}));inferior.add(boton("Quitar línea",()->{int r=t.getSelectedRow();if(r>=0){carrito.remove(t.convertRowIndexToModel(r));actualizar.run();}}));inferior.add(boton("Confirmar factura",()->{Cliente c=(Cliente)clientes.getSelectedItem();if(c==null||carrito.isEmpty())throw new IllegalArgumentException("Seleccione cliente y agregue productos.");synchronized(datos){Map<String,Integer> requeridos=new HashMap<>();for(Linea l:carrito)requeridos.merge(l.codigo,l.cantidad,Integer::sum);for(Map.Entry<String,Integer> e:requeridos.entrySet()){Producto p=datos.productos.stream().filter(x->x.codigo.equals(e.getKey())).findFirst().orElseThrow(()->new IllegalArgumentException("Producto inexistente."));if(p.existencias<e.getValue())throw new IllegalArgumentException("Stock insuficiente para "+p.nombre);}for(Producto p:datos.productos)p.existencias-=requeridos.getOrDefault(p.codigo,0);Factura f=new Factura(datos.facturas.size()+1,c.toString(),sesion.usuario,carrito);datos.facturas.add(f);guardar();carrito.clear();actualizar.run();cargar.run();JTextArea a=new JTextArea(f.comprobante(),20,55);a.setEditable(false);JOptionPane.showMessageDialog(ventana,new JScrollPane(a),"Factura confirmada",JOptionPane.INFORMATION_MESSAGE);exportar(f);}}));inferior.add(total);panel.add(inferior,BorderLayout.SOUTH);return panel;}
     static void pestañasPlaceholder(JPanel panel,Runnable r){panel.addHierarchyListener(e->{if(panel.isShowing())r.run();});}
     static void exportar(Factura f){JFileChooser ch=new JFileChooser();ch.setSelectedFile(new File("Factura_"+f.numero+".txt"));if(ch.showSaveDialog(ventana)==JFileChooser.APPROVE_OPTION)try{Files.writeString(ch.getSelectedFile().toPath(),f.comprobante());JOptionPane.showMessageDialog(ventana,"Comprobante guardado.");}catch(IOException ex){error("No se pudo exportar: "+ex.getMessage());}}
