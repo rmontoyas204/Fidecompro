@@ -76,6 +76,24 @@ public class Main {
     }
     static void error(String m){JOptionPane.showMessageDialog(ventana,m,"Validación",JOptionPane.WARNING_MESSAGE);}
     static String requerido(String s){if(s==null||s.trim().isEmpty())throw new IllegalArgumentException("Complete todos los campos obligatorios.");return s.trim();}
+    /** Normaliza teléfonos de Costa Rica; el campo es opcional. */
+    static String validarTelefono(String telefono) {
+        String limpio = telefono == null ? "" : telefono.trim().replaceAll("[\\s-]", "");
+        if (!limpio.isEmpty() && !limpio.matches("\\d{8}")) {
+            throw new IllegalArgumentException("El teléfono debe contener exactamente 8 dígitos.");
+        }
+        return limpio;
+    }
+
+    /** Comprueba el formato del correo electrónico opcional. */
+    static String validarCorreo(String correo) {
+        String email = correo == null ? "" : correo.trim();
+        if (!email.isEmpty() && !email.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
+            throw new IllegalArgumentException("Correo inválido.");
+        }
+        return email;
+    }
+
     static JTextField campo(JPanel p,String titulo){p.add(new JLabel(titulo));JTextField t=new JTextField(19);p.add(t);return t;}
     static JPanel formulario(){JPanel p=new JPanel(new GridLayout(0,2,8,8));p.setBorder(BorderFactory.createEmptyBorder(12,12,12,12));return p;}
     static JButton boton(String t,Runnable r){JButton b=new JButton(t);b.addActionListener(e->{try{r.run();}catch(IllegalArgumentException ex){error(ex.getMessage());}catch(Exception ex){error("Operación fallida: "+ex.getMessage());}});return b;}
@@ -83,7 +101,97 @@ public class Main {
     static JPanel contenedor(JTable t,JPanel acciones){JPanel p=new JPanel(new BorderLayout(8,8));p.setBorder(BorderFactory.createEmptyBorder(12,12,12,12));p.add(new JScrollPane(t),BorderLayout.CENTER);p.add(acciones,BorderLayout.SOUTH);return p;}
     static void login(){JTextField usuario=new JTextField();JPasswordField clave=new JPasswordField();JPanel p=formulario();p.add(new JLabel("Usuario"));p.add(usuario);p.add(new JLabel("Contraseña"));p.add(clave);while(true){int op=JOptionPane.showConfirmDialog(null,p,"Fidecompro | Iniciar sesión",JOptionPane.OK_CANCEL_OPTION,JOptionPane.PLAIN_MESSAGE);if(op!=JOptionPane.OK_OPTION)System.exit(0);String u=usuario.getText().trim();String h=hash(new String(clave.getPassword()));for(Usuario x:datos.usuarios)if(x.activo&&x.usuario.equalsIgnoreCase(u)&&x.claveHash.equals(h)){sesion=x;return;}JOptionPane.showMessageDialog(null,"Credenciales inválidas o cuenta deshabilitada.");clave.setText("");}}
     static void interfaz(){ventana=new JFrame("FIDECOMPRO | Inventario y facturación | "+sesion);ventana.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);ventana.setSize(1060,680);ventana.setLocationRelativeTo(null);pestañas=new JTabbedPane();pestañas.addTab("Clientes",clientes());pestañas.addTab("Productos e inventario",productos());pestañas.addTab("Facturación",facturacion());pestañas.addTab("Historial",historial());if(sesion.administra())pestañas.addTab("Usuarios",usuarios());ventana.add(pestañas);ventana.setVisible(true);}
-    static JPanel clientes(){DefaultTableModel m=tablaModelo("Identificación","Nombre","Teléfono","Correo","Dirección");JTable t=new JTable(m);Runnable refrescar=()->{m.setRowCount(0);for(Cliente c:datos.clientes)m.addRow(new Object[]{c.identificacion,c.nombre,c.telefono,c.correo,c.direccion});};refrescar.run();JPanel acciones=new JPanel();acciones.add(boton("Registrar cliente",()->{JPanel p=formulario();JTextField i=campo(p,"Identificación"),n=campo(p,"Nombre"),tel=campo(p,"Teléfono"),cor=campo(p,"Correo"),dir=campo(p,"Dirección");if(JOptionPane.showConfirmDialog(ventana,p,"Nuevo cliente",JOptionPane.OK_CANCEL_OPTION)==0){String id=requerido(i.getText());if(datos.clientes.stream().anyMatch(c->c.identificacion.equals(id)))throw new IllegalArgumentException("Identificación duplicada.");String email=cor.getText().trim();if(!email.isEmpty()&&!email.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"))throw new IllegalArgumentException("Correo inválido.");datos.clientes.add(new Cliente(id,requerido(n.getText()),tel.getText().trim(),email,dir.getText().trim()));guardar();refrescar.run();}}));acciones.add(boton("Editar seleccionado",()->{int r=t.getSelectedRow();if(r<0)throw new IllegalArgumentException("Seleccione un cliente.");Cliente c=datos.clientes.get(t.convertRowIndexToModel(r));JPanel p=formulario();JTextField n=campo(p,"Nombre"),tel=campo(p,"Teléfono"),cor=campo(p,"Correo"),dir=campo(p,"Dirección");n.setText(c.nombre);tel.setText(c.telefono);cor.setText(c.correo);dir.setText(c.direccion);if(JOptionPane.showConfirmDialog(ventana,p,"Editar "+c.identificacion,JOptionPane.OK_CANCEL_OPTION)==0){String email=cor.getText().trim();if(!email.isEmpty()&&!email.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"))throw new IllegalArgumentException("Correo inválido.");c.nombre=requerido(n.getText());c.telefono=tel.getText().trim();c.correo=email;c.direccion=dir.getText().trim();guardar();refrescar.run();}}));acciones.add(boton("Buscar",()->{String s=JOptionPane.showInputDialog(ventana,"Identificación o nombre:");if(s!=null){for(int r=0;r<t.getRowCount();r++)if((t.getValueAt(r,0)+" "+t.getValueAt(r,1)).toLowerCase().contains(s.toLowerCase())){t.setRowSelectionInterval(r,r);t.scrollRectToVisible(t.getCellRect(r,0,true));return;}error("No se encontró el cliente.");}}));return contenedor(t,acciones);}
+    static JPanel clientes() {
+        DefaultTableModel modelo = tablaModelo("Identificación", "Nombre", "Teléfono", "Correo", "Dirección");
+        JTable tabla = new JTable(modelo);
+        Runnable refrescar = () -> {
+            modelo.setRowCount(0);
+            for (Cliente cliente : datos.clientes) {
+                modelo.addRow(new Object[]{cliente.identificacion, cliente.nombre,
+                    cliente.telefono, cliente.correo, cliente.direccion});
+            }
+        };
+        refrescar.run();
+        JPanel acciones = new JPanel();
+
+        acciones.add(boton("Registrar cliente", () -> {
+            JPanel formularioCliente = formulario();
+            JTextField identificacion = campo(formularioCliente, "Identificación");
+            JTextField nombre = campo(formularioCliente, "Nombre");
+            JTextField telefono = campo(formularioCliente, "Teléfono");
+            JTextField correo = campo(formularioCliente, "Correo");
+            JTextField direccion = campo(formularioCliente, "Dirección");
+            if (JOptionPane.showConfirmDialog(ventana, formularioCliente,
+                    "Nuevo cliente", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) {
+                String id = requerido(identificacion.getText());
+                if (datos.clientes.stream().anyMatch(c -> c.identificacion.equalsIgnoreCase(id))) {
+                    throw new IllegalArgumentException("Identificación duplicada.");
+                }
+                // Validar todo antes de modificar la lista de clientes.
+                String nombreValidado = requerido(nombre.getText());
+                String telefonoValidado = validarTelefono(telefono.getText());
+                String correoValidado = validarCorreo(correo.getText());
+                datos.clientes.add(new Cliente(id, nombreValidado, telefonoValidado,
+                    correoValidado, direccion.getText().trim()));
+                guardar();
+                refrescar.run();
+            }
+        }));
+
+        acciones.add(boton("Editar seleccionado", () -> {
+            int fila = tabla.getSelectedRow();
+            if (fila < 0) {
+                throw new IllegalArgumentException("Seleccione un cliente.");
+            }
+            Cliente cliente = datos.clientes.get(tabla.convertRowIndexToModel(fila));
+            JPanel formularioCliente = formulario();
+            JTextField nombre = campo(formularioCliente, "Nombre");
+            JTextField telefono = campo(formularioCliente, "Teléfono");
+            JTextField correo = campo(formularioCliente, "Correo");
+            JTextField direccion = campo(formularioCliente, "Dirección");
+            nombre.setText(cliente.nombre);
+            telefono.setText(cliente.telefono);
+            correo.setText(cliente.correo);
+            direccion.setText(cliente.direccion);
+            if (JOptionPane.showConfirmDialog(ventana, formularioCliente,
+                    "Editar " + cliente.identificacion, JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) {
+                // Validar primero: un dato incorrecto no debe producir una edición parcial.
+                String nombreValidado = requerido(nombre.getText());
+                String telefonoValidado = validarTelefono(telefono.getText());
+                String correoValidado = validarCorreo(correo.getText());
+                cliente.nombre = nombreValidado;
+                cliente.telefono = telefonoValidado;
+                cliente.correo = correoValidado;
+                cliente.direccion = direccion.getText().trim();
+                guardar();
+                refrescar.run();
+            }
+        }));
+
+        acciones.add(boton("Buscar", () -> {
+            String entrada = JOptionPane.showInputDialog(ventana, "Identificación o nombre:");
+            if (entrada == null) {
+                return;
+            }
+            String busqueda = entrada.trim().toLowerCase(java.util.Locale.ROOT);
+            if (busqueda.isEmpty()) {
+                error("Ingrese una identificación o nombre para buscar.");
+                return;
+            }
+            for (int fila = 0; fila < tabla.getRowCount(); fila++) {
+                String contenido = (tabla.getValueAt(fila, 0) + " " + tabla.getValueAt(fila, 1))
+                    .toLowerCase(java.util.Locale.ROOT);
+                if (contenido.contains(busqueda)) {
+                    tabla.setRowSelectionInterval(fila, fila);
+                    tabla.scrollRectToVisible(tabla.getCellRect(fila, 0, true));
+                    return;
+                }
+            }
+            error("No se encontró el cliente.");
+        }));
+        return contenedor(tabla, acciones);
+    }
+
     static JPanel productos(){DefaultTableModel m=tablaModelo("Código","Nombre","Descripción","Categoría","Precio ₡","Existencias","Mínimo","Alerta");JTable t=new JTable(m);Runnable refrescar=()->{m.setRowCount(0);for(Producto x:datos.productos)m.addRow(new Object[]{x.codigo,x.nombre,x.descripcion,x.categoria,x.precio,x.existencias,x.minimo,x.existencias<=x.minimo?"REABASTECER":"OK"});};refrescar.run();JPanel acciones=new JPanel();if(sesion.administra()){acciones.add(boton("Registrar producto",()->{JPanel p=formulario();JTextField cod=campo(p,"Código"),nom=campo(p,"Nombre"),des=campo(p,"Descripción"),cat=campo(p,"Categoría"),pre=campo(p,"Precio"),sto=campo(p,"Existencias iniciales"),min=campo(p,"Stock mínimo");if(JOptionPane.showConfirmDialog(ventana,p,"Nuevo producto",JOptionPane.OK_CANCEL_OPTION)==0){String c=requerido(cod.getText());if(datos.productos.stream().anyMatch(x->x.codigo.equalsIgnoreCase(c)))throw new IllegalArgumentException("Código duplicado.");BigDecimal precio=new BigDecimal(requerido(pre.getText()));int e=Integer.parseInt(requerido(sto.getText())),mi=Integer.parseInt(requerido(min.getText()));if(precio.signum()<0||e<0||mi<0)throw new IllegalArgumentException("Precio y cantidades no pueden ser negativos.");datos.productos.add(new Producto(c,requerido(nom.getText()),des.getText(),requerido(cat.getText()),precio,e,mi));guardar();refrescar.run();}}));acciones.add(boton("Entrada de inventario",()->{int r=t.getSelectedRow();if(r<0)throw new IllegalArgumentException("Seleccione un producto.");Producto x=datos.productos.get(t.convertRowIndexToModel(r));String s=JOptionPane.showInputDialog(ventana,"Unidades para agregar a "+x.nombre);if(s!=null){int n=Integer.parseInt(s);if(n<=0)throw new IllegalArgumentException("La cantidad debe ser positiva.");x.existencias=Math.addExact(x.existencias,n);guardar();refrescar.run();}}));acciones.add(boton("Editar producto",()->{int r=t.getSelectedRow();if(r<0)throw new IllegalArgumentException("Seleccione un producto.");Producto x=datos.productos.get(t.convertRowIndexToModel(r));JPanel p=formulario();JTextField n=campo(p,"Nombre"),d=campo(p,"Descripción"),c=campo(p,"Categoría"),pr=campo(p,"Precio"),mi=campo(p,"Mínimo");n.setText(x.nombre);d.setText(x.descripcion);c.setText(x.categoria);pr.setText(x.precio.toString());mi.setText(""+x.minimo);if(JOptionPane.showConfirmDialog(ventana,p,"Editar producto",JOptionPane.OK_CANCEL_OPTION)==0){BigDecimal precio=new BigDecimal(pr.getText());int minimo=Integer.parseInt(mi.getText());if(precio.signum()<0||minimo<0)throw new IllegalArgumentException("Valores inválidos.");x.nombre=requerido(n.getText());x.descripcion=d.getText();x.categoria=requerido(c.getText());x.precio=precio;x.minimo=minimo;guardar();refrescar.run();}}));}else acciones.add(new JLabel("Consulta de inventario (solo administración puede modificar)."));return contenedor(t,acciones);}
     static JPanel facturacion(){JPanel panel=new JPanel(new BorderLayout(10,10));panel.setBorder(BorderFactory.createEmptyBorder(12,12,12,12));JPanel superior=new JPanel(new FlowLayout(FlowLayout.LEFT));JComboBox<Cliente> clientes=new JComboBox<>();JComboBox<Producto> productos=new JComboBox<>();JSpinner cantidad=new JSpinner(new SpinnerNumberModel(1,1,100000,1));superior.add(new JLabel("Cliente:"));superior.add(clientes);superior.add(new JLabel("Producto:"));superior.add(productos);superior.add(new JLabel("Cantidad:"));superior.add(cantidad);panel.add(superior,BorderLayout.NORTH);DefaultTableModel m=tablaModelo("Código","Producto","Cantidad","Precio","Subtotal");JTable t=new JTable(m);panel.add(new JScrollPane(t),BorderLayout.CENTER);List<Linea> carrito=new ArrayList<>();JLabel total=new JLabel("Subtotal ₡0 | IVA ₡0 | Total ₡0");Runnable actualizar=()->{m.setRowCount(0);BigDecimal sub=BigDecimal.ZERO;for(Linea l:carrito){m.addRow(new Object[]{l.codigo,l.nombre,l.cantidad,l.precio,l.subtotal()});sub=sub.add(l.subtotal());}BigDecimal iva=sub.multiply(IVA).setScale(2,RoundingMode.HALF_UP);total.setText("Subtotal ₡"+sub+" | IVA (13%) ₡"+iva+" | Total ₡"+sub.add(iva));};Runnable cargar=()->{clientes.removeAllItems();productos.removeAllItems();for(Cliente c:datos.clientes)clientes.addItem(c);for(Producto p:datos.productos)productos.addItem(p);};pestañasPlaceholder(panel,cargar);JPanel inferior=new JPanel(new FlowLayout(FlowLayout.LEFT));inferior.add(boton("Actualizar catálogos",cargar));inferior.add(boton("Agregar línea",()->{Producto p=(Producto)productos.getSelectedItem();if(p==null)throw new IllegalArgumentException("Registre productos primero.");int n=(int)cantidad.getValue();int ya=carrito.stream().filter(l->l.codigo.equals(p.codigo)).mapToInt(l->l.cantidad).sum();if(n>p.existencias-ya)throw new IllegalArgumentException("Existencias insuficientes.");carrito.add(new Linea(p,n));actualizar.run();}));inferior.add(boton("Quitar línea",()->{int r=t.getSelectedRow();if(r>=0){carrito.remove(t.convertRowIndexToModel(r));actualizar.run();}}));inferior.add(boton("Confirmar factura",()->{Cliente c=(Cliente)clientes.getSelectedItem();if(c==null||carrito.isEmpty())throw new IllegalArgumentException("Seleccione cliente y agregue productos.");synchronized(datos){Map<String,Integer> requeridos=new HashMap<>();for(Linea l:carrito)requeridos.merge(l.codigo,l.cantidad,Integer::sum);for(Map.Entry<String,Integer> e:requeridos.entrySet()){Producto p=datos.productos.stream().filter(x->x.codigo.equals(e.getKey())).findFirst().orElseThrow(()->new IllegalArgumentException("Producto inexistente."));if(p.existencias<e.getValue())throw new IllegalArgumentException("Stock insuficiente para "+p.nombre);}for(Producto p:datos.productos)p.existencias-=requeridos.getOrDefault(p.codigo,0);Factura f=new Factura(datos.facturas.size()+1,c.toString(),sesion.usuario,carrito);datos.facturas.add(f);guardar();carrito.clear();actualizar.run();cargar.run();JTextArea a=new JTextArea(f.comprobante(),20,55);a.setEditable(false);JOptionPane.showMessageDialog(ventana,new JScrollPane(a),"Factura confirmada",JOptionPane.INFORMATION_MESSAGE);exportar(f);}}));inferior.add(total);panel.add(inferior,BorderLayout.SOUTH);return panel;}
     static void pestañasPlaceholder(JPanel panel,Runnable r){panel.addHierarchyListener(e->{if(panel.isShowing())r.run();});}
