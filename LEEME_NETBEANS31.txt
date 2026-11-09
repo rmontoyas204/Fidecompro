@@ -1,5 +1,0 @@
-FIDECOMPRO AVANCE 2 - NETBEANS 31
-Abrir carpeta Fidecompro_Avance2_NetBeans31 mediante File > Open Project.
-Source Packages > fidecompro contiene Main, Usuario, Administrador, Cajero, Cliente, Producto, Linea, Factura y Datos.
-Ejecutar Main. Usuario admin / Admin123! (solo para demostracion academica).
-Nota: si se utilizo una version anterior con datos serializados, las clases ahora separadas pueden ser incompatibles. Haga copia de %USERPROFILE%\.fidecompro\datos.ser antes de probar y, si hay error de deserializacion, renombre el archivo para crear datos nuevos.
